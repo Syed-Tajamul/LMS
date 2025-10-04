@@ -1,7 +1,8 @@
 import { Elysia } from "elysia";
+import { LeaveType } from "./controllers/leave_type.controller";
+import openapi from "@elysiajs/openapi";
 
-const app = new Elysia().get("/", () => "Hello Elysia").listen(3000);
-
-console.log(
-  `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
-);
+const app = new Elysia().get("/", () => "Hello Elysia")
+  .use(openapi())
+  .use(LeaveType)
+  .listen(3000);

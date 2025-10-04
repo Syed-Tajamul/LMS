@@ -6,6 +6,11 @@
     "dev": "bun run --watch src/index.ts"
   },
   "dependencies": {
+    "@elysiajs/openapi": "^1.4.11",
+    "@libsql/client": "^0.15.15",
+    "drizzle-kit": "^0.31.5",
+    "drizzle-orm": "^0.44.6",
+    "drizzle-typebox": "^0.3.3",
     "elysia": "latest"
   },
   "devDependencies": {
