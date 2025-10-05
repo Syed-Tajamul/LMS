@@ -16,5 +16,5 @@ export const users = sqliteTable('users', {
     refresh_token: text(),
     suspended_at: text(),
     suspension_reason: text(),
-    role: text().notNull().default("user"),
+    role: text().notNull().default("employee"),
 });
