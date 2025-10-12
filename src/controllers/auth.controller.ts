@@ -7,10 +7,10 @@ import { jwt } from '@elysiajs/jwt';
 export const User = new Elysia({ prefix: '/auth' })
     .use(jwt({
         name: 'jwt_auth',
-        secret: process.env.JWT_SECRET!
+        secret: process.env.JWT_SECRET!,
     }))
     .onTransform((request) => console.log(" request", request))
-    .post("/sign-up", async (request) => {
+    .post("sign-up", async (request) => {
         const user = await db.select()
             .from(users)
             .where(eq(users.email, request.body.email));
@@ -41,42 +41,46 @@ export const User = new Elysia({ prefix: '/auth' })
             })
         }
     )
-    .post(
-        '/sign-in',
-        async ({
-            store: { user, session },
-            status,
-            body: { username, password },
-            cookie: { token }
-        }) => {
-            if (
-                !user[username] ||
-                !(await Bun.password.verify(password, user[username]))
-            )
-                return status(400, {
-                    success: false,
-                    message: 'Invalid username or password'
-                })
-            const key = crypto.getRandomValues(new Uint32Array(1))[0]
-            session[key] = username
-            token.value = key
-            return {
-                success: true,
-                message: `Signed in as ${username}`
-            }
-        },
+    .post("sign-in", async ({ body, jwt_auth, cookie }) => {
+        const user = await db.select()
+            .from(users)
+            .where(eq(users.email, body.email))
+            .limit(1);
+
+        if (!user.length) return { message: "User does not exist" }
+        const isPasswordCorrect = await Bun.password.verify(body.password, user[0].password)
+        if (!isPasswordCorrect) return { message: "Password is incorrect" }
+        const accessToken = await jwt_auth.sign({ id: user[0].id, exp: "1h" })
+        cookie.access_token.set({
+            value: accessToken,
+            httpOnly: true,
+            maxAge: 24 * 3600,
+            secure: true,
+        });
+        const refreshToken = await Bun.password.hash(Bun.randomUUIDv7());
+
+        await db.update(users)
+            .set({ refresh_token: refreshToken })
+            .where(eq(users.id, user[0].id))
+
+        return ({ status: "success" })
+    },
         {
             body: t.Object({
-                username: t.String({ minLength: 1 }),
-                password: t.String({ minLength: 8 })
-            }),
-            cookie: t.Cookie(
-                {
-                    token: t.Number()
-                },
-                {
-                    secrets: 'seia'
-                }
-            )
+                email: t.String(),
+                password: t.String(),
+            })
         }
-    ) 
+    )
+    .get('/sign-out', ({ cookie }) => {
+        console.log(cookie, "cookie")
+        // token.remove()
+        //     return {
+        //         success: true,
+        //         message: 'Signed out'
+        //     }
+        // },
+        //     {
+        //         cookie: 'optionalSession'
+        //     }
+    }) 
