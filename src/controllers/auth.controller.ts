@@ -9,7 +9,7 @@ export const User = new Elysia({ prefix: '/auth' })
         name: 'jwt_auth',
         secret: process.env.JWT_SECRET!,
     }))
-    .onTransform((request) => console.log(" request", request))
+    // .onTransform((request) => console.log(" request", request))
     .post("sign-up", async (request) => {
         const user = await db.select()
             .from(users)
@@ -25,11 +25,9 @@ export const User = new Elysia({ prefix: '/auth' })
 
         if (!newUser) return { message: "Problems creating user" }
 
-        const token = await request.jwt_auth.sign({ id: newUser[0].id })
         return {
             success: true,
             message: 'User created',
-            access_token: token,
         }
     },
         {
@@ -50,14 +48,22 @@ export const User = new Elysia({ prefix: '/auth' })
         if (!user.length) return { message: "User does not exist" }
         const isPasswordCorrect = await Bun.password.verify(body.password, user[0].password)
         if (!isPasswordCorrect) return { message: "Password is incorrect" }
-        const accessToken = await jwt_auth.sign({ id: user[0].id, exp: "1h" })
+        const accessToken = await jwt_auth.sign({ id: user[0].id, exp: "1h" })  //here we are just saving users id information.we can save much more info as well. 
+        const refreshToken = await jwt_auth.sign({ id: user[0].id, exp: "7d" });
+
         cookie.access_token.set({
             value: accessToken,
             httpOnly: true,
             maxAge: 24 * 3600,
             secure: true,
         });
-        const refreshToken = await Bun.password.hash(Bun.randomUUIDv7());
+
+        cookie.refresh_token.set({
+            value: refreshToken,
+            httpOnly: true,
+            maxAge: 7 * 24 * 3600,
+            secure: true
+        });
 
         await db.update(users)
             .set({ refresh_token: refreshToken })
@@ -72,15 +78,66 @@ export const User = new Elysia({ prefix: '/auth' })
             })
         }
     )
-    .get('/sign-out', ({ cookie }) => {
-        console.log(cookie, "cookie")
-        // token.remove()
-        //     return {
-        //         success: true,
-        //         message: 'Signed out'
-        //     }
-        // },
-        //     {
-        //         cookie: 'optionalSession'
-        //     }
-    }) 
+    .post("/refresh", async ({ cookie, jwt_auth }) => {
+        const incomingRefreshToken = cookie.refresh_token?.value;
+        if (!incomingRefreshToken) {
+            return { message: "no refresh token present." }
+        }
+
+        const decodedToken = await jwt_auth.verify(incomingRefreshToken as string);
+
+        if (!decodedToken) {
+            return { message: "refresh token is invalid." }
+        }
+
+        const user = await db.select()
+            .from(users)
+            .where(eq(users.id, decodedToken.id as number))
+
+        if (user[0].refresh_token !== incomingRefreshToken) {
+            return { message: "invalid refresh token" }
+        }
+
+        const newAccessToken = await jwt_auth.sign({ id: decodedToken.id, exp: "1h" });
+        const newRefreshToken = await jwt_auth.sign({ id: decodedToken.id, exp: "7d" });
+
+        cookie.access_token.set({
+            value: newAccessToken,
+            httpOnly: true,
+            maxAge: 24 * 3600,
+            secure: true,
+        });
+
+        cookie.refresh_token.set({
+            value: newRefreshToken,
+            httpOnly: true,
+            maxAge: 7 * 24 * 3600,
+            secure: true
+        });
+
+        await db.update(users)
+            .set({ refresh_token: newRefreshToken })
+            .where(eq(users.id, user[0].id as number))
+
+        console.log("cookie", cookie);
+
+        return ({
+            status: "success",
+            access_token: newAccessToken,
+            refresh_token: newRefreshToken
+        })
+    })
+    .get('/sign-out', async ({ cookie }) => {
+        await db.update(users)
+            .set({ refresh_token: null })
+            .where(eq(users.refresh_token, cookie?.refresh_token?.value as string))
+            .returning();
+        cookie.refresh_token.remove();
+        cookie.access_token.remove();
+        return {
+            status: "success",
+            message: "user logged out",
+            refresh_token: cookie.refresh_token?.value,
+            access_token: cookie.access_token?.value
+        };
+    });
